@@ -1,0 +1,132 @@
+#!/bin/bash
+
+# Colores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # Sin color
+
+MODE=""
+PACKAGES=()
+
+# Detectar modo de operación
+for arg in "$@"; do
+    case "$arg" in
+        -S|--sync)
+            MODE="install"
+            ;;
+        -R|--remove)
+            MODE="remove"
+            ;;
+        -Syu|--sync-upgrade)
+            MODE="upgrade"
+            ;;
+        -Sy|--sync-refresh)
+            MODE="refresh"
+            ;;
+    esac
+done
+
+# Extraer nombres de paquetes (solo para modo install)
+if [[ "$MODE" == "install" ]]; then
+    skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        if [[ "$arg" == "-S" || "$arg" == "--sync" ]]; then
+            continue
+        fi
+        if [[ "$arg" == "--noconfirm" || "$arg" == "--needed" ]]; then
+            continue
+        fi
+        if [[ "$arg" != -* ]]; then
+            PACKAGES+=("$arg")
+        fi
+    done
+fi
+
+# Mostrar modo de operación
+echo ""
+echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║     🔒 PARU-AUR SECURITY WRAPPER    ║${NC}"
+echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
+echo ""
+
+case "$MODE" in
+    install)
+        echo -e "${YELLOW}📦 Modo: INSTALAR PAQUETES${NC}"
+        echo ""
+        
+        if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+            echo -e "${YELLOW}⚠️  No se especificaron paquetes para instalar${NC}"
+        else
+            ALL_SAFE=true
+            for pkg in "${PACKAGES[@]}"; do
+                echo -e "${BLUE}────────────────────────────────────────${NC}"
+                echo -e "${BLUE}🔍 Escaneando: ${NC}$pkg"
+                echo ""
+                
+                OUTPUT=$(aur-scan check "$pkg" 2>&1)
+                
+                if echo "$OUTPUT" | grep -q "Not found: Package.*not found in AUR"; then
+                    echo -e "${GREEN}ℹ️  $pkg es de repositorio oficial${NC}"
+                    echo -e "${GREEN}✅ Seguro (repositorio confiable)${NC}"
+                else
+                    echo "$OUTPUT"
+                    if echo "$OUTPUT" | grep -qi "No security issues detected"; then
+                        echo -e "${GREEN}✅ Paquete AUR: escaneo pasado - SEGURO${NC}"
+                    elif echo "$OUTPUT" | grep -qi "Security issues detected"; then
+                        echo -e "${RED}❌ PAQUETE SOSPECHOSO DETECTADO${NC}"
+                        ALL_SAFE=false
+                    else
+                        echo -e "${GREEN}✅ Paquete AUR: escaneo pasado${NC}"
+                    fi
+                fi
+                echo ""
+            done
+            
+            if [[ "$ALL_SAFE" == false ]]; then
+                echo -e "${RED}╔══════════════════════════════════════╗${NC}"
+                echo -e "${RED}║  ❌ INSTALACIÓN CANCELADA            ║${NC}"
+                echo -e "${RED}║  Se detectaron paquetes sospechosos  ║${NC}"
+                echo -e "${RED}╚══════════════════════════════════════╝${NC}"
+                exit 1
+            fi
+        fi
+        ;;
+    
+    upgrade)
+        echo -e "${YELLOW}🔄 Modo: ACTUALIZAR SISTEMA${NC}"
+        echo -e "${YELLOW}⚠️  Los paquetes AUR ya instalados no se escanean automáticamente${NC}"
+        echo -e "${YELLOW}💡 Para mayor seguridad, revisa los AUR updates manualmente con:${NC}"
+        echo -e "${BLUE}   aur-scan check <nombre-del-paquete>${NC}"
+        echo ""
+        ;;
+    
+    remove)
+        echo -e "${YELLOW}🗑️  Modo: ELIMINAR PAQUETES${NC}"
+        echo -e "${YELLOW}✅ No requiere escaneo${NC}"
+        echo ""
+        ;;
+    
+    refresh)
+        echo -e "${YELLOW}🔄 Modo: ACTUALIZAR BASE DE DATOS${NC}"
+        echo -e "${YELLOW}✅ No requiere escaneo${NC}"
+        echo ""
+        ;;
+    
+    *)
+        echo -e "${YELLOW}⚠️  Modo no reconocido o ejecución directa${NC}"
+        ;;
+esac
+
+echo -e "${GREEN}════════════════════════════════════════${NC}"
+echo -e "${GREEN}✅ Ejecutando paru con los parámetros originales...${NC}"
+echo -e "${GREEN}════════════════════════════════════════${NC}"
+echo ""
+
+# Ejecutar paru real
+exec /usr/bin/paru "$@"
